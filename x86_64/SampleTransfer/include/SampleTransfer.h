@@ -6,5 +6,7 @@ int CheckPktRx(uint8_t* data_buf,int retryLimit);
 void Tx();
 void Rx();
 
+int rx_header(uint8_t* data_buf,int retryLimit);
+int tx_header(uint8_t* data_buf, int data_length, int retryLimit);
 
 #endif

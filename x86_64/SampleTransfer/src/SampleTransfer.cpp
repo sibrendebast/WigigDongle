@@ -209,44 +209,54 @@ void Tx()
 
 void Rx()
 {
-	uint8_t * data = (uint8_t*)malloc(4000);
+    uint8_t * data = (uint8_t*)malloc(4000);
         memset(data, 1, 4000);
-	int length;
-	
-
-	bool received_header = false;
-	char * filename;
-	while(!received_header)
+    int length;
+    
+    char * filename;
+    bool received_header = false;
+    std::cout<< "receiving header\n";
+    std::cout.flush();
+    while(!received_header)
         {
-		length = rx_header(data, 50);
-		if(length > 0)
-		{
-			filename = new char[length];
-			memcpy(filename, (const char *)data, length);
-			received_header = true;
-		}
+
+        length = rx_header(data, 50);
+        std::cout << "Header packet received!\n";
+        std::cout.flush();
+        if(length > 0)
+        {
+            std::cout << "hello!\n";
+            std::cout.flush();
+            filename = new char[length-8];
+            memcpy(filename, (const char *)(data+8), length-8);
+            memcpy(&fileSize,data,8);
+            received_header = true;
+            std::cout<< "received header from: " << filename  << " length: " <<fileSize << std::endl;
+            std::cout.flush();
+        }
+        
     }
 
-    rx_fp = fopen(filename, "w+");
-	if(rx_fp == NULL)
-	{
-		fclose(rx_fp);
-		rx_fp = fopen(filename, "w+");
-	}
-	
-	while(start_idx)
+    rx_fp = fopen((char*)filename, "w+");
+    if(rx_fp == NULL)
+    {
+        fclose(rx_fp);
+        rx_fp = fopen(filename, "w+");
+    }
+    
+    while(start_idx)
         {
-		length = CheckPktRx(data, 50);
-		if(length > 0)
-		{
-			fwrite(data, 1, length, rx_fp);
-			if(length < 4000)
-			{
-				fclose(rx_fp);
-				start_idx = false;
-				return;
-			}
-		}
+        length = CheckPktRx(data, 50);
+        if(length > 0)
+        {
+            fwrite(data, 1, length, rx_fp);
+            if(length < 4000)
+            {
+                fclose(rx_fp);
+                start_idx = false;
+                return;
+            }
+        }
         }
 }
 
@@ -396,58 +406,61 @@ int CheckPktRx(uint8_t* data_buf,int retryLimit)
 
 int rx_header(uint8_t* data_buf,int retryLimit)
 {
-	int status;
-	int length = BUFSIZE;
-	int data_length;
-	int pkt_length = BUFSIZE;
-	int ack_count = 0;
+    int status;
+    int length = BUFSIZE;
+    int data_length;
+    int pkt_length = BUFSIZE;
+    int ack_count = 0;
 
-	for(int i = 0; i< retryLimit; i++)
-	{
-		/*Before use ML_Receiver need to set length. In this sample is receive 4096 data. */
-		length = BUFSIZE;
-		status = ML_Receiver(recvBuf, &length);
-	        if(status > 0)
-        	{
-			if(check_idx_rx != recvBuf[15] && recvBuf[3] == 0xE6)
-		        {
-                		check_idx_rx = recvBuf[15];
-				/*push receive packet index to ack buffer*/
-		                transferBuf[15] = recvBuf[15];
-		                memcpy(&data_length, recvBuf+16, sizeof(int));
-				if(data_length > 4000 || data_length <0)
-					return 0;
-				else{
-		        		memcpy(data_buf, recvBuf+20, data_length);
-				
-					/* Send back ack */
-                			status = ML_Transfer(transferBuf, pkt_length);
+    for(int i = 0; i< retryLimit; i++)
+    {
+        /*Before use ML_Receiver need to set length. In this sample is receive 4096 data. */
+        length = BUFSIZE;
+        status = ML_Receiver(recvBuf, &length);
+            if(status > 0)
+            {
+            if(check_idx_rx != recvBuf[15] && recvBuf[3] == 0xE6)
+                {
+                    std::cout << "Header packet deteceted!\n";
+                    std::cout.flush();
+                        check_idx_rx = recvBuf[15];
+                /*push receive packet index to ack buffer*/
+                        transferBuf[15] = recvBuf[15];
+                        memcpy(&data_length, recvBuf+16, sizeof(int));
+                if(data_length > 4000 || data_length <0)
+                    return 0;
+                else{
+                        memcpy(data_buf, recvBuf+20, data_length);
+                        std::cout << "file name written into buffer!\n";
+                        std::cout.flush();
+                    /* Send back ack */
+                            status = ML_Transfer(transferBuf, pkt_length);
 
-			                if(status > 0)
-			                {
-						/* return data length*/
-	     					return data_length;
-		                	}
-				}
-			 }else{
-				/*handle repeat packet*/
-				transferBuf[15] = check_idx_rx;
-				/*Please do not often same back repeat packet ack. In this sample set ack count is 16. */
-		                if(ack_count == 0 ){
-					status = ML_Transfer(transferBuf, pkt_length);
-			                if(status < 0)
-			                {
-						printf("USB error\n");
-                        			return 0;
-			                }
-			                ack_count = 16;
-		                }
-		                ack_count--;
-			}
-	        }
-	}
-	printf("retry limit\n");
-	return 0;	
+                            if(status > 0)
+                            {
+                        /* return data length*/
+                            return data_length;
+                            }
+                }
+             }else{
+                /*handle repeat packet*/
+                transferBuf[15] = check_idx_rx;
+                /*Please do not often same back repeat packet ack. In this sample set ack count is 16. */
+                        if(ack_count == 0 ){
+                    status = ML_Transfer(transferBuf, pkt_length);
+                            if(status < 0)
+                            {
+                        printf("USB error\n");
+                                    return 0;
+                            }
+                            ack_count = 16;
+                        }
+                        ack_count--;
+            }
+            }
+    }
+    printf("retry limit\n");
+    return 0;   
 }
 
 int tx_header(uint8_t* data_buf, int data_length, int retryLimit)

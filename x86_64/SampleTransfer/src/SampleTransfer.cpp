@@ -25,7 +25,7 @@ uint8_t check_idx_tx = 1;
 uint8_t check_idx_rx = 0;
 
 unsigned long long int tx_cnt = 0;
-unsigned int fileSize = 1;
+unsigned long long int fileSize = 0;
 unsigned int retransmit_cnt = 0;
 float old_speed = 0.0;
 
@@ -33,7 +33,7 @@ uint8_t *recvBuf, *transferBuf;
 
 bool start_idx = false;
 
-const char* myFile;
+std::string myFile;
 
 FILE *tx_fp, *rx_fp;
 
@@ -112,11 +112,10 @@ int main(int argc, char *argv[])
 			case 't':
 			case 'T':
 				if (std::string(argv[2]) == "-f"){
-					myFile = argv[3];
+					myFile = std::string(argv[3]);
 					std::cout << "Sending file " << myFile << std::endl;
 				} else {
-					std::string sample = "./sample.jpg";
-					myFile = sample.c_str();
+					myFile = "./sample.jpg";
 					std::cout << "sending sample picture" << std::endl;
 				}
 				/*transfer set PCP mode*/
@@ -143,7 +142,7 @@ void Tx()
 {
 	/*The Tx() is send sample.jpg to receive*/
 	uint8_t * data = (uint8_t*)malloc(4000);
-	tx_fp = fopen(myFile, "r+");
+	tx_fp = fopen(myFile.c_str(), "r+");
 	int data_length = 0;
 
 	fseek (tx_fp , 0 , SEEK_END);
@@ -159,13 +158,14 @@ void Tx()
 	}
 
 	bool send_header = false;
-	memcpy(data, myFile, sizeof(myFile)/sizeof(myFile[0]));
+	memcpy(data,&fileSize,sizeof(fileSize));
+	memcpy(data+sizeof(fileSize), myFile.c_str(), myFile.length());
 
 	while(!send_header)
 	{
 		std::cout << "sending header!\n";
 		// std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::nanoseconds> (end - begin).count() <<std::endl;
-		if(tx_header(data, sizeof(myFile)/sizeof(myFile[0]), 50) == 1)
+		if(tx_header(data, myFile.length()+sizeof(fileSize), 50) == 1)
 		{
 
 			send_header = true;
@@ -463,7 +463,14 @@ int tx_header(uint8_t* data_buf, int data_length, int retryLimit)
 
 	/*copy data length*/
 	memcpy(transferBuf + 16, &data_length, sizeof(int));
+
+	long long int file_size;
+	memcpy(&file_size,data_buf,8);
 	
+	char * filename = new char[data_length-8];
+	memcpy(filename,(const char *)data_buf+8,data_length-8);
+	std::cout << "sending filename: " << filename << std::endl;
+	std::cout << "The lenght of this file is " << file_size << " bytes" << std::endl;
 	/*copy data*/
 	memcpy(transferBuf + 20, data_buf, data_length);
 
@@ -472,65 +479,26 @@ int tx_header(uint8_t* data_buf, int data_length, int retryLimit)
 		/*The trnasfer packet last 4 byte need to set value 0x00. If set other value the RF packet to lead to error. */
 		transferBuf[4092+i] = 0x00;
 	}
-
-	float speed = 0.0;
-	float alpha = 0.9995;
-
-	std::chrono::steady_clock::time_point end;
-	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-
+	
 	for(int i = 0; i< retryLimit; i++){
 		status = ML_Transfer(transferBuf, pkt_length);
-	        if(status > 0)
-        	{
+        if(status > 0) {
 			/*Before use ML_Receiver need to set length. In this sample is receive 4096 data. */
 			length = BUFSIZE;
 			/*wait to receive rx ack and check packet index. */
 			status = ML_Receiver(recvBuf, &length);
-		        if(status > 0)
-				{
-					// std::cout << "\r transferred";
-                	if(recvBuf[15] == check_idx_tx)
-					{
-			            check_idx_tx++;
-			            tx_cnt++;
-
-			            std::cout << "\rTransfer progress: " <<  std::setw(3) << ((tx_cnt*400000)/fileSize) << "% \t";
-			            end = std::chrono::steady_clock::now();
-			            // alpha*old_speed + (1.0f-alpha)*
-						speed = alpha*old_speed + (1.0f-alpha)*32000.0f/std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
-						begin = std::chrono::steady_clock::now();
-						old_speed = speed;
-						std::cout << "current speed = " << std::setw(5) << speed << " Mbps                                  \r";
-						std::cout.flush();
-						
-						return 1;
-					} else {
-						retransmit_cnt++;
-						std::cout << "\rTransfer progress: " <<  std::setw(3) << ((tx_cnt*400000)/fileSize) << "% \t";
-						std::cout << "Connection lost, incorrect ACK...            \r";
-						std::cout.flush();
-						return 0;
-					}
-		        } else {
-		        	std::cout << "\rTransfer progress: " <<  std::setw(3) << ((tx_cnt*400000)/fileSize) << "% \t";
-		        	end = std::chrono::steady_clock::now();
-			            // alpha*old_speed + (1.0f-alpha)*
-					speed =  0.0f;
-					begin = std::chrono::steady_clock::now();
-					old_speed = speed;
-					std::cout << "current speed = " << std::setw(5) << speed << " Mbps    ";
-		        	std::cout << "Connection lost, waiting for ACK " << retransmit_cnt << "\r";
-		        	std::cout.flush();
-		        	retransmit_cnt++;
-		        }
-			} else {
-				std::cout << "\rTransfer progress: " <<  std::setw(3) << ((tx_cnt*400000)/fileSize) << "% \t";
-		        std::cout << "Connection lost, transfer incomplete            \r";
-		        std::cout.flush();
-		        retransmit_cnt++;
-			}
-    	}
+	        if(status > 0){
+				// std::cout << "\r transferred";
+            	if(recvBuf[15] == check_idx_tx){
+		            check_idx_tx++;
+		            tx_cnt++;
+					return 1;
+				} else {
+					return 0;
+				}
+	        } 
+		} 
+    }
 
 	printf("retry limit\n");
 	return 0;
